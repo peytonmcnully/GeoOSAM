@@ -8,14 +8,6 @@ if sys.stderr is None:
 if sys.stdout is None:
     sys.stdout = open(os.devnull, 'w')
 
-from hydra.core.global_hydra import GlobalHydra
-from hydra import initialize_config_module, compose
-from shapely.geometry import shape
-from rasterio.features import shapes
-import rasterio
-import cv2
-import numpy as np
-import torch
 import datetime
 import pathlib
 import platform
@@ -23,7 +15,60 @@ import subprocess
 import urllib.request
 import tempfile
 import math
-from PIL import Image
+
+# ML and geospatial dependencies — lazy-loaded because:
+# - QGIS 4 bundles shapely/rasterio in its C++ layer; they may not be
+#   importable as Python modules at plugin-load time.
+# - torch/hydra/cv2/PIL are user-installed and may be missing entirely.
+# All are imported at the top of the file so the rest of the code can
+# reference them; if any are missing the plugin will still load and show
+# a helpful error when the user tries to run inference.
+try:
+    from hydra.core.global_hydra import GlobalHydra
+    from hydra import initialize_config_module, compose
+except ImportError:
+    GlobalHydra = None
+    initialize_config_module = None
+    compose = None
+    print("⚠️  hydra not available — SAM2 model loading will fail")
+
+try:
+    from shapely.geometry import shape
+except ImportError:
+    shape = None
+    print("⚠️  shapely not importable at load time (normal for QGIS 4)")
+
+try:
+    from rasterio.features import shapes
+    import rasterio
+except ImportError:
+    shapes = None
+    rasterio = None
+    print("⚠️  rasterio not importable at load time (normal for QGIS 4)")
+
+try:
+    import cv2
+except ImportError:
+    cv2 = None
+    print("⚠️  cv2 not available — install opencv-python-headless")
+
+try:
+    import numpy as np
+except ImportError:
+    np = None
+    print("⚠️  numpy not available")
+
+try:
+    import torch
+except ImportError:
+    torch = None
+    print("⚠️  torch not available — install pytorch")
+
+try:
+    from PIL import Image
+except ImportError:
+    Image = None
+    print("⚠️  PIL not available — install Pillow")
 from qgis.PyQt.QtCore import QVariant, Qt, QThread, pyqtSignal
 from qgis.core import (
     QgsProject,
@@ -51,9 +96,19 @@ from qgis.PyQt import QtWidgets, QtCore, QtGui
 # fmt: off
 plugin_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(plugin_dir)
-from helpers import create_detection_helper
-from sam2.build_sam import build_sam2
-from sam2.sam2_image_predictor import SAM2ImagePredictor
+try:
+    from helpers import create_detection_helper
+except ImportError:
+    create_detection_helper = None
+    print("⚠️  helpers not available")
+
+try:
+    from sam2.build_sam import build_sam2
+    from sam2.sam2_image_predictor import SAM2ImagePredictor
+except ImportError:
+    build_sam2 = None
+    SAM2ImagePredictor = None
+    print("⚠️  sam2 package not available — SAM2 model loading will fail")
 
 # Ultralytics SAM2.1 setup
 SAM21_AVAILABLE = False
